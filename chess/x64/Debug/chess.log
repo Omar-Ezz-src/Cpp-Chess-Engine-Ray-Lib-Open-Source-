@@ -1,0 +1,5 @@
+﻿  main.cpp
+C:\Users\dell\source\repos\easy-raylib-starter-project-main\easy-raylib-starter-project-main\chess\main.cpp(622,43): warning C4244: 'argument': conversion from 'float' to 'int', possible loss of data
+C:\Users\dell\source\repos\easy-raylib-starter-project-main\easy-raylib-starter-project-main\chess\main.cpp(622,37): warning C4244: 'argument': conversion from 'float' to 'int', possible loss of data
+C:\Users\dell\source\repos\easy-raylib-starter-project-main\easy-raylib-starter-project-main\chess\main.cpp(638,33): warning C4244: 'argument': conversion from 'int' to 'float', possible loss of data
+  chess.vcxproj -> C:\Users\dell\source\repos\easy-raylib-starter-project-main\easy-raylib-starter-project-main\chess\x64\Debug\chess.exe
