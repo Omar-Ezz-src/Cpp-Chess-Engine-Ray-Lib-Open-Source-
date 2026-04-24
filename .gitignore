@@ -11,6 +11,7 @@
 x64/
 Debug/
 Release/
+_Deps/
 
 # VS files
 *.user
