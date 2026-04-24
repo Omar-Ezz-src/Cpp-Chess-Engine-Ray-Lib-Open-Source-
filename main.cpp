@@ -13,10 +13,19 @@ using namespace std;
 
 uint64_t squareBit(int square) { return 1ULL << square; }
 
+int bitSquare(uint64_t bit) {
+    static const int table[64] = {
+         0,  1, 56,  2, 57, 49, 28,  3, 61, 58, 42, 50, 38, 29, 17,  4,
+        62, 47, 59, 36, 45, 43, 51, 22, 53, 39, 33, 30, 24, 18, 12,  5,
+        63, 55, 48, 27, 60, 41, 37, 16, 46, 35, 44, 21, 52, 32, 23, 11,
+        54, 26, 40, 15, 34, 20, 31, 10, 25, 14, 19,  9, 13,  8,  7,  6
+    };
+    return table[(bit * 0x03f79d71b4ca8b09ULL) >> 58];
+}
+
 int square(int file, int rank) { return rank * 8 + file; }
 
 bool validateFEN(const string& fen) {
-    // Split FEN into fields
     vector<string> fields;
     string token;
     for (char c : fen) {
@@ -30,7 +39,6 @@ bool validateFEN(const string& fen) {
         return false;
     }
 
-    // --- Field 1: Piece placement ---
     vector<string> ranks;
     string rank;
     for (char c : fields[0]) {
@@ -65,22 +73,14 @@ bool validateFEN(const string& fen) {
         }
     }
 
-    if (whiteKings != 1) {
-        cout << "FEN Error: Expected 1 white king, found " << whiteKings << "\n";
-        return false;
-    }
-    if (blackKings != 1) {
-        cout << "FEN Error: Expected 1 black king, found " << blackKings << "\n";
-        return false;
-    }
+    if (whiteKings != 1) { cout << "FEN Error: Expected 1 white king, found " << whiteKings << "\n"; return false; }
+    if (blackKings != 1) { cout << "FEN Error: Expected 1 black king, found " << blackKings << "\n"; return false; }
 
-    // --- Field 2: Side to move ---
     if (fields[1] != "w" && fields[1] != "b") {
         cout << "FEN Error: Side to move must be 'w' or 'b', got '" << fields[1] << "'\n";
         return false;
     }
 
-    // --- Field 3: Castling rights ---
     if (fields[2] != "-") {
         for (char c : fields[2]) {
             if (string("KQkq").find(c) == string::npos) {
@@ -90,7 +90,6 @@ bool validateFEN(const string& fen) {
         }
     }
 
-    // --- Field 4: En passant ---
     if (fields[3] != "-") {
         if (fields[3].size() != 2
             || fields[3][0] < 'a' || fields[3][0] > 'h'
@@ -100,7 +99,6 @@ bool validateFEN(const string& fen) {
         }
     }
 
-    // --- Field 5: Halfmove clock ---
     for (char c : fields[4]) {
         if (!isdigit(c)) {
             cout << "FEN Error: Halfmove clock must be a number, got '" << fields[4] << "'\n";
@@ -108,7 +106,6 @@ bool validateFEN(const string& fen) {
         }
     }
 
-    // --- Field 6: Fullmove number ---
     for (char c : fields[5]) {
         if (!isdigit(c)) {
             cout << "FEN Error: Fullmove number must be a number, got '" << fields[5] << "'\n";
@@ -125,82 +122,73 @@ bool validateFEN(const string& fen) {
 
 //------------------ define
 
-enum Piece : uint8_t
-{
-    R,N,B,Q,K,P,r,n,b,q,k,p,None
+enum Piece : uint8_t { R, N, B, Q, K, P, r, n, b, q, k, p, None };
+
+struct Move {
+    int from = -1, to = -1;
+    Piece piece = None;
+    Piece captured = None;
+    bool wasCastleWK = false;
+    bool wasCastleWQ = false;
+    bool wasCastleBK = false;
+    bool wasCastleBQ = false;
 };
+
 class Board {
 public:
+    uint64_t bitboards[12] = { 0 };
+    bool sideToMove = true; // true = white, false = black
 
-    uint64_t bitboards[12] = { 0 }; // 0-5 White (P,N,B,R,Q,K), 6-11 Black (p,n,b,r,q,k)
-    bool sideToMove=true;//true = white,false = black
+    bool castleWK = false;
+    bool castleWQ = false;
+    bool castleBK = false;
+    bool castleBQ = false;
 
-    bool castleWK = false; // White kingside
-    bool castleWQ = false; // White queenside
-    bool castleBK = false; // Black kingside
-    bool castleBQ = false; // Black queenside
-
-    uint64_t whitePieces() 
-    { 
-        return bitboards[P] | bitboards[N] | bitboards[B] | bitboards[R] | bitboards[Q] | bitboards[K] ;
-
+    uint64_t whitePieces() {
+        return bitboards[P] | bitboards[N] | bitboards[B]
+            | bitboards[R] | bitboards[Q] | bitboards[K];
     }
-
     uint64_t blackPieces() {
-        return bitboards[p] | bitboards[n] | bitboards[b] | bitboards[r] | bitboards[q] | bitboards[k];
+        return bitboards[p] | bitboards[n] | bitboards[b]
+            | bitboards[r] | bitboards[q] | bitboards[k];
     }
+    uint64_t occupied() { return whitePieces() | blackPieces(); }
 
-    uint64_t occupied()    { return whitePieces() | blackPieces(); }
-
-    Vector2 highlightedSquare = { 0,0 };
-
-    uint64_t* heldPiece = nullptr;
-    Piece heldPieceType = None;
-    int heldSquare = -1;
-    
+    Vector2 highlightedSquare = { 0, 0 };
+    Piece   heldPieceType = None;
+    int     heldSquare = -1;
 };
 
 map<Piece, Texture2D> textures = {};
 int squareEdgeSide = 64;
 int margin = 32;
 
-Color backGroundColor = { 79,32,13,255 };
+Color backGroundColor = { 79, 32, 13, 255 };
 Color boardDarkColor = BROWN;
 Color boardLightColor = LIGHTGRAY;
 Color availableMoveColor = { 10, 200, 50, 150 };
 
-const uint64_t RANK_3 = 0x0000000000FF0000ULL; // White pawns start here
-const uint64_t RANK_6 = 0x0000FF0000000000ULL; // Black pawns start here
+const uint64_t RANK_3 = 0x0000000000FF0000ULL;
+const uint64_t RANK_6 = 0x0000FF0000000000ULL;
 
 //------------------logic functions
 
 void parseFEN(const std::string& fen, Board& board) {
-    int rank = 7; // FEN starts at rank 8 (index 7)
-    int file = 0; // FEN starts at file A (index 0)
+    int rank = 7, file = 0;
     char lastChar = '.';
     for (char c : fen) {
-        if (c == ' ') {
-            lastChar = c;
-            break; // End of piece placement section
-        }
-
+        if (c == ' ') { lastChar = c; break; }
         if (lastChar == ' ') {
             switch (c) {
-                case 'w': board.sideToMove = true; break;
-                case 'b': board.sideToMove = false; break;
+            case 'w': board.sideToMove = true;  break;
+            case 'b': board.sideToMove = false; break;
             }
         }
         lastChar = c;
 
-        if (c == '/') {
-            rank--;
-            file = 0;
-        }
-        else if (isdigit(c)) {
-            file += (c - '0'); // Skip empty squares
-        }
+        if (c == '/') { rank--; file = 0; }
+        else if (isdigit(c)) { file += (c - '0'); }
         else {
-            // Map character to Piece enum
             Piece piece = None;
             switch (c) {
             case 'P': piece = P; break; case 'N': piece = N; break;
@@ -209,22 +197,19 @@ void parseFEN(const std::string& fen, Board& board) {
             case 'p': piece = p; break; case 'n': piece = n; break;
             case 'b': piece = b; break; case 'r': piece = r; break;
             case 'q': piece = q; break; case 'k': piece = k; break;
-
             }
-
             if (piece != None) {
-                int square = rank * 8 + file;
-                board.bitboards[piece] |= (1ULL << square);
+                board.bitboards[piece] |= (1ULL << (rank * 8 + file));
                 file++;
             }
         }
     }
-    //------castling
+
     int spaces = 0;
-    for (int i = 0; i < fen.size(); i++) {
+    for (int i = 0; i < (int)fen.size(); i++) {
         if (fen[i] == ' ') spaces++;
         if (spaces == 2) {
-            for (int j = i + 1; j < fen.size() && fen[j] != ' '; j++) {
+            for (int j = i + 1; j < (int)fen.size() && fen[j] != ' '; j++) {
                 if (fen[j] == 'K') board.castleWK = true;
                 if (fen[j] == 'Q') board.castleWQ = true;
                 if (fen[j] == 'k') board.castleBK = true;
@@ -233,121 +218,99 @@ void parseFEN(const std::string& fen, Board& board) {
             break;
         }
     }
-
 }
 
-//get moves functions
+//------------------move generation
 
 uint64_t getRookAttacks(uint64_t rook, uint64_t occupied, uint64_t friendly) {
-    uint64_t result = 0;
-    uint64_t ray;
+    uint64_t result = 0, ray;
 
-    // North (+8 per rank)
     ray = rook;
     while ((ray = (ray << 8))) {
-        if (ray & friendly) break;          // blocked by own piece, stop before
+        if (ray & friendly) break;
         result |= ray;
-        if (ray & occupied) break;          // hit enemy piece, include but stop
+        if (ray & occupied) break;
     }
-
-    // South (-8 per rank)
     ray = rook;
     while ((ray = (ray >> 8))) {
         if (ray & friendly) break;
         result |= ray;
         if (ray & occupied) break;
     }
-
-    // East (+1 per file)
     ray = rook;
-    while ((ray = (ray << 1) & NOT_A_FILE)) {  // NOT_A_FILE prevents h->a wrap
+    while ((ray = (ray << 1) & NOT_A_FILE)) {
         if (ray & friendly) break;
         result |= ray;
         if (ray & occupied) break;
     }
-
-    // West (-1 per file)
     ray = rook;
-    while ((ray = (ray >> 1) & NOT_H_FILE)) {  // NOT_H_FILE prevents a->h wrap
+    while ((ray = (ray >> 1) & NOT_H_FILE)) {
         if (ray & friendly) break;
         result |= ray;
         if (ray & occupied) break;
     }
-
     return result;
 }
 
 uint64_t getValidRookMoves(uint64_t pieceBitboard, Board* board, bool isWhite) {
     uint64_t friendly = isWhite ? board->whitePieces() : board->blackPieces();
-    uint64_t occupied = board->whitePieces() | board->blackPieces();
+    uint64_t occupied = board->occupied();
     uint64_t result = 0;
-
     while (pieceBitboard) {
-        uint64_t singleRook = pieceBitboard & (0ULL - pieceBitboard);
-        result |= getRookAttacks(singleRook, occupied, friendly);
-        pieceBitboard &= pieceBitboard - 1;                   // clear LSB
+        uint64_t single = pieceBitboard & (0ULL - pieceBitboard);
+        result |= getRookAttacks(single, occupied, friendly);
+        pieceBitboard &= pieceBitboard - 1;
     }
-
     return result;
 }
 
 uint64_t getValidKnightMoves(uint64_t pieceBitboard, Board* board, bool isWhite) {
     uint64_t friendly = isWhite ? board->whitePieces() : board->blackPieces();
+    uint64_t notAFile = NOT_A_FILE;
+    uint64_t notHFile = NOT_H_FILE;
+    uint64_t notABFile = notAFile & (notAFile << 1);
+    uint64_t notGHFile = notHFile & (notHFile >> 1);
     uint64_t result = 0;
 
-    uint64_t notAFile = NOT_A_FILE;  // 0xFEFEFEFEFEFEFEFE
-    uint64_t notHFile = NOT_H_FILE;  // 0x7F7F7F7F7F7F7F7F
-    uint64_t notABFile = notAFile & (notAFile << 1); // masks A and B
-    uint64_t notGHFile = notHFile & (notHFile >> 1); // masks G and H
+    result |= (pieceBitboard << 17) & notAFile;
+    result |= (pieceBitboard << 15) & notHFile;
+    result |= (pieceBitboard << 10) & notABFile;
+    result |= (pieceBitboard << 6) & notGHFile;
+    result |= (pieceBitboard >> 17) & notHFile;
+    result |= (pieceBitboard >> 15) & notAFile;
+    result |= (pieceBitboard >> 10) & notGHFile;
+    result |= (pieceBitboard >> 6) & notABFile;
 
-    result |= (pieceBitboard << 17) & notAFile;  // +2 rank, +1 file
-    result |= (pieceBitboard << 15) & notHFile;  // +2 rank, -1 file
-    result |= (pieceBitboard << 10) & notABFile; // +1 rank, +2 file
-    result |= (pieceBitboard << 6) & notGHFile; // +1 rank, -2 file
-    result |= (pieceBitboard >> 17) & notHFile;  // -2 rank, -1 file
-    result |= (pieceBitboard >> 15) & notAFile;  // -2 rank, +1 file
-    result |= (pieceBitboard >> 10) & notGHFile; // -1 rank, -2 file
-    result |= (pieceBitboard >> 6) & notABFile; // -1 rank, +2 file
-
-    return result & ~friendly; // exclude squares occupied by own pieces
+    return result & ~friendly;
 }
 
 uint64_t getBishopAttacks(uint64_t bishop, uint64_t occupied, uint64_t friendly) {
-    uint64_t result = 0;
-    uint64_t ray;
+    uint64_t result = 0, ray;
 
-    // North-East
     ray = bishop;
     while ((ray = (ray << 9) & NOT_A_FILE)) {
         if (ray & friendly) break;
         result |= ray;
         if (ray & occupied) break;
     }
-
-    // North-West
     ray = bishop;
     while ((ray = (ray << 7) & NOT_H_FILE)) {
         if (ray & friendly) break;
         result |= ray;
         if (ray & occupied) break;
     }
-
-    // South-East
     ray = bishop;
     while ((ray = (ray >> 7) & NOT_A_FILE)) {
         if (ray & friendly) break;
         result |= ray;
         if (ray & occupied) break;
     }
-
-    // South-West
     ray = bishop;
     while ((ray = (ray >> 9) & NOT_H_FILE)) {
         if (ray & friendly) break;
         result |= ray;
         if (ray & occupied) break;
     }
-
     return result;
 }
 
@@ -355,81 +318,64 @@ uint64_t getValidBishopMoves(uint64_t pieceBitboard, Board* board, bool isWhite)
     uint64_t friendly = isWhite ? board->whitePieces() : board->blackPieces();
     uint64_t occupied = board->occupied();
     uint64_t result = 0;
-
     while (pieceBitboard) {
-        uint64_t singleBishop = pieceBitboard & (0ULL - pieceBitboard); // isolate LSB
-        result |= getBishopAttacks(singleBishop, occupied, friendly);
-        pieceBitboard &= pieceBitboard - 1; // clear LSB
+        uint64_t single = pieceBitboard & (0ULL - pieceBitboard);
+        result |= getBishopAttacks(single, occupied, friendly);
+        pieceBitboard &= pieceBitboard - 1;
     }
-
     return result;
 }
 
 uint64_t getValidQueenMoves(uint64_t pieceBitboard, Board* board, bool isWhite) {
-    // Queen = rook + bishop
     return getValidRookMoves(pieceBitboard, board, isWhite)
         | getValidBishopMoves(pieceBitboard, board, isWhite);
 }
 
-// TODO : EN-PASSUNT
 uint64_t getValidPawnMoves(uint64_t pieceBitboard, Board* board, bool isWhite) {
     uint64_t friendly = isWhite ? board->whitePieces() : board->blackPieces();
-    uint64_t against = (!isWhite) ? board->whitePieces() : board->blackPieces();
+    uint64_t against = isWhite ? board->blackPieces() : board->whitePieces();
+    uint64_t empty = ~(friendly | against);
     uint64_t result = 0;
 
     if (isWhite) {
-        // Single and double push
-        uint64_t empty = ~(friendly | against);
         uint64_t singlePush = (pieceBitboard << 8) & empty;
-        uint64_t doublePush = ((singlePush & RANK_3) << 8) & empty; // RANK_3 = where white pawns are after one push from rank 2
-
+        uint64_t doublePush = ((singlePush & RANK_3) << 8) & empty;
         result |= singlePush | doublePush;
-
-        result |= (pieceBitboard << 9) & NOT_A_FILE & against; // North-East
-        result |= (pieceBitboard << 7) & NOT_H_FILE & against; // North-West
+        result |= (pieceBitboard << 9) & NOT_A_FILE & against;
+        result |= (pieceBitboard << 7) & NOT_H_FILE & against;
     }
     else {
-        uint64_t empty = ~(friendly | against);
         uint64_t singlePush = (pieceBitboard >> 8) & empty;
-        uint64_t doublePush = ((singlePush & RANK_6) >> 8)& empty; // RANK_3 = where white pawns are after one push from rank 2
-
+        uint64_t doublePush = ((singlePush & RANK_6) >> 8) & empty;
         result |= singlePush | doublePush;
-
-        result |= (pieceBitboard >> 7) & NOT_A_FILE & against; // South-East
-        result |= (pieceBitboard >> 9) & NOT_H_FILE & against; // South-West
+        result |= (pieceBitboard >> 7) & NOT_A_FILE & against;
+        result |= (pieceBitboard >> 9) & NOT_H_FILE & against;
     }
-    
-    return result; // Cannot move onto your own pieces
-} 
+    return result;
+}
 
 bool isSquareAttacked(int sq, bool byWhite, Board* board) {
     uint64_t sqBit = squareBit(sq);
 
-    // Check knight attacks
     uint64_t knights = byWhite ? board->bitboards[N] : board->bitboards[n];
     if (getValidKnightMoves(sqBit, board, !byWhite) & knights) return true;
 
-    // Check bishop/queen diagonal attacks
     uint64_t bishops = byWhite ? (board->bitboards[B] | board->bitboards[Q])
         : (board->bitboards[b] | board->bitboards[q]);
     if (getValidBishopMoves(sqBit, board, !byWhite) & bishops) return true;
 
-    // Check rook/queen straight attacks
     uint64_t rooks = byWhite ? (board->bitboards[R] | board->bitboards[Q])
         : (board->bitboards[r] | board->bitboards[q]);
     if (getValidRookMoves(sqBit, board, !byWhite) & rooks) return true;
 
-    // Check pawn attacks
     uint64_t pawns = byWhite ? board->bitboards[P] : board->bitboards[p];
     if (byWhite) {
-        // White pawns attack diagonally upward, so check if sq is attacked from below
         if (((sqBit >> 9) & NOT_H_FILE & pawns) || ((sqBit >> 7) & NOT_A_FILE & pawns)) return true;
     }
     else {
         if (((sqBit << 9) & NOT_A_FILE & pawns) || ((sqBit << 7) & NOT_H_FILE & pawns)) return true;
     }
 
-    // King - raw pattern instead of calling getValidKingMoves (avoids circular call)
     uint64_t king = byWhite ? board->bitboards[K] : board->bitboards[k];
     uint64_t kingAttacks = 0;
     kingAttacks |= (sqBit << 8);
@@ -450,31 +396,23 @@ uint64_t getValidKingMoves(uint64_t pieceBitboard, Board* board, bool isWhite) {
     uint64_t occ = board->occupied();
     uint64_t result = 0;
 
-    // Up/Down (No file-wrapping possible)
-    result |= (pieceBitboard << 8); // North
-    result |= (pieceBitboard >> 8); // South
-
-    // East moves (Protect against A-file wrap)
-    result |= (pieceBitboard << 1) & NOT_A_FILE; // East
-    result |= (pieceBitboard << 9) & NOT_A_FILE; // North-East
-    result |= (pieceBitboard >> 7) & NOT_A_FILE; // South-East
-
-    // West moves (Protect against H-file wrap)
-    result |= (pieceBitboard >> 1) & NOT_H_FILE; // West
-    result |= (pieceBitboard << 7) & NOT_H_FILE; // North-West
-    result |= (pieceBitboard >> 9) & NOT_H_FILE; // South-West
+    result |= (pieceBitboard << 8);
+    result |= (pieceBitboard >> 8);
+    result |= (pieceBitboard << 1) & NOT_A_FILE;
+    result |= (pieceBitboard << 9) & NOT_A_FILE;
+    result |= (pieceBitboard >> 7) & NOT_A_FILE;
+    result |= (pieceBitboard >> 1) & NOT_H_FILE;
+    result |= (pieceBitboard << 7) & NOT_H_FILE;
+    result |= (pieceBitboard >> 9) & NOT_H_FILE;
 
     if (isWhite) {
-        // King must be on e1 and not in check
         if (pieceBitboard & squareBit(4) && !isSquareAttacked(4, !isWhite, board)) {
-            // Kingside: f1(5) and g1(6) empty and not attacked, rook on h1(7)
             if (board->castleWK
                 && !(occ & squareBit(5)) && !(occ & squareBit(6))
                 && !isSquareAttacked(5, !isWhite, board)
                 && !isSquareAttacked(6, !isWhite, board))
                 result |= squareBit(6);
 
-            // Queenside: d1(3), c1(2), b1(1) empty, d1+c1 not attacked, rook on a1(0)
             if (board->castleWQ
                 && !(occ & squareBit(3)) && !(occ & squareBit(2)) && !(occ & squareBit(1))
                 && !isSquareAttacked(3, !isWhite, board)
@@ -483,16 +421,13 @@ uint64_t getValidKingMoves(uint64_t pieceBitboard, Board* board, bool isWhite) {
         }
     }
     else {
-        // King must be on e8(60) and not in check
         if (pieceBitboard & squareBit(60) && !isSquareAttacked(60, !isWhite, board)) {
-            // Kingside: f8(61) and g8(62) empty and not attacked, rook on h8(63)
             if (board->castleBK
                 && !(occ & squareBit(61)) && !(occ & squareBit(62))
                 && !isSquareAttacked(61, !isWhite, board)
                 && !isSquareAttacked(62, !isWhite, board))
                 result |= squareBit(62);
 
-            // Queenside: d8(59), c8(58), b8(57) empty, d8+c8 not attacked, rook on a8(56)
             if (board->castleBQ
                 && !(occ & squareBit(59)) && !(occ & squareBit(58)) && !(occ & squareBit(57))
                 && !isSquareAttacked(59, !isWhite, board)
@@ -501,9 +436,8 @@ uint64_t getValidKingMoves(uint64_t pieceBitboard, Board* board, bool isWhite) {
         }
     }
 
-    return result & ~friendly; // Cannot move onto your own pieces
+    return result & ~friendly;
 }
-
 
 uint64_t getValidPieceMoves(Piece piece, uint64_t pieceBitboard, Board* board, bool isWhite) {
     if (piece == N || piece == n) return getValidKnightMoves(pieceBitboard, board, isWhite);
@@ -515,111 +449,174 @@ uint64_t getValidPieceMoves(Piece piece, uint64_t pieceBitboard, Board* board, b
     return 0;
 }
 
-//piece handling functions
+//------------------make / unmake
 
 void movePiece(uint64_t& pieceBitboard, int from, int to) {
-    pieceBitboard &= ~squareBit(from); // clear source
-    pieceBitboard |= squareBit(to);   // set destination
+    pieceBitboard &= ~squareBit(from);
+    pieceBitboard |= squareBit(to);
 }
 
+Move buildMove(Board* board, Piece piece, int from, int to) {
+    Move move;
+    move.from = from;
+    move.to = to;
+    move.piece = piece;
+    move.captured = None;
+    move.wasCastleWK = board->castleWK;
+    move.wasCastleWQ = board->castleWQ;
+    move.wasCastleBK = board->castleBK;
+    move.wasCastleBQ = board->castleBQ;
+
+    // Detect captured piece (search enemy range)
+    int start = (piece < 6) ? 6 : 0;
+    int end = (piece < 6) ? 12 : 6;
+    for (int i = start; i < end; i++) {
+        if ((board->bitboards[i] >> to) & 1) {
+            move.captured = static_cast<Piece>(i);
+            break;
+        }
+    }
+    return move;
+}
+
+void makeMove(Board* board, Move& move) {
+    movePiece(board->bitboards[move.piece], move.from, move.to);
+
+    // Remove captured piece
+    if (move.captured != None)
+        board->bitboards[move.captured] &= ~squareBit(move.to);
+
+    // Move castling rook and revoke rights
+    if (move.piece == K) {
+        board->castleWK = board->castleWQ = false;
+        if (move.from == 4 && move.to == 6) movePiece(board->bitboards[R], 7, 5);
+        if (move.from == 4 && move.to == 2) movePiece(board->bitboards[R], 0, 3);
+    }
+    if (move.piece == k) {
+        board->castleBK = board->castleBQ = false;
+        if (move.from == 60 && move.to == 62) movePiece(board->bitboards[r], 63, 61);
+        if (move.from == 60 && move.to == 58) movePiece(board->bitboards[r], 56, 59);
+    }
+
+    // Revoke castling rights if a rook moves from its starting square
+    if (move.piece == R) {
+        if (move.from == 0) board->castleWQ = false;
+        if (move.from == 7) board->castleWK = false;
+    }
+    if (move.piece == r) {
+        if (move.from == 56) board->castleBQ = false;
+        if (move.from == 63) board->castleBK = false;
+    }
+
+    // Revoke castling rights if a rook is captured on its starting square
+    if (move.captured == R) {
+        if (move.to == 0) board->castleWQ = false;
+        if (move.to == 7) board->castleWK = false;
+    }
+    if (move.captured == r) {
+        if (move.to == 56) board->castleBQ = false;
+        if (move.to == 63) board->castleBK = false;
+    }
+
+    board->sideToMove = !board->sideToMove;
+}
+
+void unmakeMove(Board* board, Move& move) {
+    board->sideToMove = !board->sideToMove;
+
+    movePiece(board->bitboards[move.piece], move.to, move.from);
+
+    // Restore captured piece
+    if (move.captured != None)
+        board->bitboards[move.captured] |= squareBit(move.to);
+
+    // Restore castling rook position
+    if (move.piece == K) {
+        if (move.from == 4 && move.to == 6) movePiece(board->bitboards[R], 5, 7);
+        if (move.from == 4 && move.to == 2) movePiece(board->bitboards[R], 3, 0);
+    }
+    if (move.piece == k) {
+        if (move.from == 60 && move.to == 62) movePiece(board->bitboards[r], 61, 63);
+        if (move.from == 60 && move.to == 58) movePiece(board->bitboards[r], 59, 56);
+    }
+
+    // Restore all castling rights from the saved state
+    board->castleWK = move.wasCastleWK;
+    board->castleWQ = move.wasCastleWQ;
+    board->castleBK = move.wasCastleBK;
+    board->castleBQ = move.wasCastleBQ;
+}
+
+uint64_t getLegalMoves(Piece piece, int fromSq, Board* board, bool isWhite) {
+    uint64_t pseudoMoves = getValidPieceMoves(piece, squareBit(fromSq), board, isWhite);
+    uint64_t legalMoves = 0;
+
+    while (pseudoMoves) {
+        uint64_t lsb = pseudoMoves & (0ULL - pseudoMoves);
+        int toSq = bitSquare(lsb);
+
+        Move move = buildMove(board, piece, fromSq, toSq);
+        makeMove(board, move);
+
+        int kSq = isWhite ? bitSquare(board->bitboards[K])
+            : bitSquare(board->bitboards[k]);
+        if (!isSquareAttacked(kSq, !isWhite, board))
+            legalMoves |= squareBit(toSq);
+
+        unmakeMove(board, move);
+        pseudoMoves &= pseudoMoves - 1;
+    }
+    return legalMoves;
+}
+
+//------------------piece interaction
+
 void pickUpPiece(Board* board, int sq) {
+    int start = board->sideToMove ? 0 : 6;
+    int end = board->sideToMove ? 6 : 12;
 
-    if (board->sideToMove) {
-
-        for (size_t i = 0; i < 6; i++)
-        {
-            if ((board->bitboards[i] >> sq) & 1) {
-                board->heldPiece = &board->bitboards[i];
-                board->heldPieceType = static_cast<Piece>(i);
-                break;
-            }
+    for (int i = start; i < end; i++) {
+        if ((board->bitboards[i] >> sq) & 1) {
+            board->heldPieceType = static_cast<Piece>(i);
+            board->heldSquare = sq;
+            return;
         }
-
     }
-    else  {
-
-        for (size_t i = 6; i < 12; i++)
-        {
-            if ((board->bitboards[i] >> sq) & 1) {
-                board->heldPiece = &board->bitboards[i];
-                board->heldPieceType = static_cast<Piece>(i);
-                break;
-            }
-        }
-
-    }
-
-    board->heldSquare = sq;
 }
 
 void dropPiece(Board* board, int to) {
-    if (board->heldPiece == nullptr) return;
+    if (board->heldSquare == -1) return;
 
-    bool movingWhite = (board->whitePieces() >> board->heldSquare) & 1;
+    bool isWhite = board->sideToMove;
 
-    // FIX: Pass only the single bit of the held piece, not the whole bitboard
-    uint64_t movingPieceBit = squareBit(board->heldSquare);
-
-    if (!(getValidPieceMoves(board->heldPieceType, movingPieceBit, board, movingWhite) & squareBit(to))) {
-        board->heldPiece = nullptr;
+    // Validate against legal moves only
+    if (!(getLegalMoves(board->heldPieceType, board->heldSquare, board, isWhite) & squareBit(to))) {
+        board->heldPieceType = None;
         board->heldSquare = -1;
         return;
     }
 
-    // Capture logic
-    if (movingWhite) {
-        for (size_t i = 6; i < 12; i++)
-            board->bitboards[i] &= ~squareBit(to);
-    }
-    else {
-        for (size_t i = 0; i < 6; i++)
-            board->bitboards[i] &= ~squareBit(to);
-    }
+    Move move = buildMove(board, board->heldPieceType, board->heldSquare, to);
+    makeMove(board, move);
 
-    movePiece(*board->heldPiece, board->heldSquare, to);
-
-    if (board->heldPieceType == K) {
-        board->castleWK = board->castleWQ = false;
-        if (to == 6) movePiece(board->bitboards[R], 7, 5); // kingside
-        if (to == 2) movePiece(board->bitboards[R], 0, 3); // queenside
-    }
-    if (board->heldPieceType == k) {
-        board->castleBK = board->castleBQ = false;
-        if (to == 62) movePiece(board->bitboards[r], 63, 61);
-        if (to == 58) movePiece(board->bitboards[r], 56, 59);
-    }
-    // Revoke rook castling rights if rook moves
-    if (board->heldPieceType == R) {
-        if (board->heldSquare == 0) board->castleWQ = false;
-        if (board->heldSquare == 7) board->castleWK = false;
-    }
-    if (board->heldPieceType == r) {
-        if (board->heldSquare == 56) board->castleBQ = false;
-        if (board->heldSquare == 63) board->castleBK = false;
-    }
-
-    board->heldPiece = nullptr;
+    board->heldPieceType = None;
     board->heldSquare = -1;
-    board->sideToMove = !board->sideToMove;
 }
 
 //------------------visual functions
 
-void drawOutline(int file, int rank,Color clr = BLACK) {
+void drawOutline(int file, int rank, Color clr = BLACK) {
     int size = squareEdgeSide;
     Rectangle rec = {
         (float)(size * file + margin),
         (float)(size * rank + margin),
-        (float)size,
-        (float)size
+        (float)size, (float)size
     };
     DrawRectangleLinesEx(rec, 2, clr);
 }
 
-void drawPiece(Piece piece, Vector2 pos,Color tint=WHITE) {
-    pos.x = pos.x + margin;
-    pos.y = pos.y + margin;
-    DrawTexture(textures[piece], pos.x,pos.y, tint);
+void drawPiece(Piece piece, Vector2 pos, Color tint = WHITE) {
+    DrawTexture(textures[piece], (int)(pos.x + margin), (int)(pos.y + margin), tint);
 }
 
 void drawSquare(int file, int rank) {
@@ -632,18 +629,15 @@ void drawMoveIndicator(int file, int rank, bool isCapture) {
     int size = squareEdgeSide;
     int cx = (size * file + margin) + size / 2;
     int cy = (size * rank + margin) + size / 2;
-    if (isCapture)
-        drawOutline(file, rank, GREEN);
-    else
-        DrawCircle(cx, cy, size / 6, availableMoveColor);
+    if (isCapture) drawOutline(file, rank, GREEN);
+    else           DrawCircle(cx, cy, size / 6, availableMoveColor);
 }
 
-void drawPieceAt(Board* board, int square, int file, int rank) {
+void drawPieceAt(Board* board, int sq, int file, int rank) {
     int size = squareEdgeSide;
-    for (size_t i = 0; i < 12; i++) {
-        if ((board->bitboards[i] >> square) & 1) {
-            Vector2 pos = { (float)(size * file), (float)(size * rank) };
-            drawPiece(static_cast<Piece>(i), pos);
+    for (int i = 0; i < 12; i++) {
+        if ((board->bitboards[i] >> sq) & 1) {
+            drawPiece(static_cast<Piece>(i), { (float)(size * file), (float)(size * rank) });
             break;
         }
     }
@@ -653,11 +647,12 @@ void drawBoard(Board* board) {
     int size = squareEdgeSide;
     DrawRectangle(0, 0, size * 8 + margin * 2, size * 8 + margin * 2, backGroundColor);
 
+    // Use getLegalMoves so indicators only show truly legal squares
     uint64_t availableMoves = 0;
-    if (board->heldPiece != nullptr)
-        availableMoves = getValidPieceMoves(
+    if (board->heldSquare != -1)
+        availableMoves = getLegalMoves(
             board->heldPieceType,
-            squareBit(board->heldSquare),
+            board->heldSquare,
             board,
             board->sideToMove
         );
@@ -666,7 +661,6 @@ void drawBoard(Board* board) {
         for (int file = 0; file < 8; file++) {
             drawSquare(file, rank);
 
-            // Highlight hovered square
             if (Vector2Equals(board->highlightedSquare, { (float)file, (float)rank }))
                 drawOutline(file, rank);
 
@@ -674,10 +668,8 @@ void drawBoard(Board* board) {
             bool isAvailable = (availableMoves >> sq) & 1;
             bool isOccupied = (board->occupied() >> sq) & 1;
 
-            if (isAvailable)
-                drawMoveIndicator(file, rank, isOccupied); // circle or green outline
-
-            if (!isOccupied) continue; // <-- was return, which exited drawBoard early
+            if (isAvailable) drawMoveIndicator(file, rank, isOccupied);
+            if (!isOccupied) continue;
 
             drawPieceAt(board, sq, file, rank);
         }
@@ -688,55 +680,49 @@ void drawBoard(Board* board) {
 
 int main(void)
 {
-    SetTraceLogLevel(LOG_WARNING); // only shows warnings and errors
-    // Initialization
-    //--------------------------------------------------------------------------------------
+    SetTraceLogLevel(LOG_WARNING);
     Board* board = new Board();
 
     string defFEN = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
     string FEN = "";
-    bool validFen = false; 
+    bool validFen = false;
 
     while (!validFen) {
-
-        char enterCustomFen = ' ';//Y=yes,n=no
-        cout << "Want to enter custom parseFEN ? Y/n : ";
+        char enterCustomFen = ' ';
+        cout << "Want to enter custom FEN? Y/n : ";
         cin >> enterCustomFen;
         cout << "\n";
 
         if (enterCustomFen == 'Y') {
-            cout << "enter custom parseFen (--/--/--/--/--/--/--/-- (w/b) KQkq - 0 1) : ";
-            cin.ignore(); // flush the leftover newline from cin >> enterCustomFen
+            cout << "Enter FEN: ";
+            cin.ignore();
             getline(cin, FEN);
             cout << "\n";
             if (validateFEN(FEN)) validFen = true;
-            else cout << "invalid format\n";
+            else cout << "Invalid FEN format.\n";
         }
         else {
-            cout << "Default game";
+            cout << "Default game\n";
             FEN = defFEN;
             validFen = true;
         }
-
     }
-    
+
     parseFEN(FEN, *board);
 
     const int size = (squareEdgeSide * 8) + (margin * 2);
-    const int screenWidth = size+16;
+    const int screenWidth = size + 16;
     const int screenHeight = size;
 
-    InitWindow(screenWidth, screenHeight, "raylib [core] example - basic window");
+    InitWindow(screenWidth, screenHeight, "Chess");
 
     textures = {
-        // White pieces
-        { P,  LoadTexture("assets/w_pawn.png")},
-        { K,  LoadTexture("assets/w_king.png")   },
-        { Q,  LoadTexture("assets/w_queen.png")  },
-        { B,  LoadTexture("assets/w_bishop.png") },
-        { N,  LoadTexture("assets/w_knight.png") },
-        { R,  LoadTexture("assets/w_rook.png")   },
-        //black pieces
+        { P, LoadTexture("assets/w_pawn.png")   },
+        { K, LoadTexture("assets/w_king.png")   },
+        { Q, LoadTexture("assets/w_queen.png")  },
+        { B, LoadTexture("assets/w_bishop.png") },
+        { N, LoadTexture("assets/w_knight.png") },
+        { R, LoadTexture("assets/w_rook.png")   },
         { p, LoadTexture("assets/b_pawn.png")   },
         { k, LoadTexture("assets/b_king.png")   },
         { q, LoadTexture("assets/b_queen.png")  },
@@ -745,48 +731,31 @@ int main(void)
         { r, LoadTexture("assets/b_rook.png")   },
     };
 
-    SetTargetFPS(60);               // Set our game to run at 60 frames-per-second
-    //--------------------------------------------------------------------------------------
+    SetTargetFPS(60);
 
-    // Main game loop
-    while (!WindowShouldClose())    // Detect window close button or ESC key
-    {
-        // Update
-        //----------------------------------------------------------------------------------
+    while (!WindowShouldClose()) {
         Vector2 mousePos = GetMousePosition();
         board->highlightedSquare = {
-        floorf((mousePos.x - margin) / squareEdgeSide),
-        floorf((mousePos.y - margin) / squareEdgeSide)
+            floorf((mousePos.x - margin) / squareEdgeSide),
+            floorf((mousePos.y - margin) / squareEdgeSide)
         };
+
         if (IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
             int file = (int)board->highlightedSquare.x;
             int rank = (int)board->highlightedSquare.y;
+            int sq = square(file, 7 - rank);
 
-            int sq = square(file, 7 - rank); // <-- flip rank here
-            if (board->heldPiece == nullptr)
-                pickUpPiece(board,  sq);
-            else
-                dropPiece(board, sq);
+            if (board->heldSquare == -1) pickUpPiece(board, sq);
+            else                         dropPiece(board, sq);
         }
-        // Draw
-        //----------------------------------------------------------------------------------
+
         BeginDrawing();
-
         drawBoard(board);
-
         EndDrawing();
-        //----------------------------------------------------------------------------------
     }
 
-    // De-Initialization
-    //--------------------------------------------------------------------------------------
-    for (auto& pair : textures) {
-        UnloadTexture(pair.second);
-    }
-    CloseWindow();     // Close window and OpenGL context
-    //--------------------------------------------------------------------------------------
-
+    for (auto& pair : textures) UnloadTexture(pair.second);
+    CloseWindow();
+    delete board;
     return 0;
 }
-
-// *792 -- lines*
