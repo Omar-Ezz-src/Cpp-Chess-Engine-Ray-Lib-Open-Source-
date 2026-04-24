@@ -1,4 +1,4 @@
-# C-Chess-Engine-Ray-Lib-Open-Source-
+# Cpp-Chess-Engine-Ray-Lib-Open-Source-
 C++ Open-Source Chess Engine With Ray Lib
 
 This is a personal project I've started, and I plan to make it a fully playable GUI chess client with
